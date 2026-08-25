@@ -33,7 +33,10 @@ const CONFIG = {
   //   ADMIN_PASSWORD="..." npm run db:bootstrap
   admin: {
     name: 'Drake Martinson',
-    email: '194429972+Drake2149@users.noreply.github.com',
+    // Also from the environment, so a personal address doesn't sit in a public
+    // repo. Falls back to a GitHub noreply address, which is a valid login but
+    // an unpleasant one to type on a phone — set ADMIN_EMAIL instead.
+    email: process.env.ADMIN_EMAIL ?? '194429972+Drake2149@users.noreply.github.com',
     password: process.env.ADMIN_PASSWORD ?? '',
   },
 
