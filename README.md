@@ -1,1 +1,1 @@
-# tilltrack
+cd "/Users/drakemartinson/Desktop/claude code/tilltrack" && git remote add origin git@github.com:drakemartinson21/tilltrack.git && git push -u origin main
