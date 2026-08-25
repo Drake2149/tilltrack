@@ -44,10 +44,24 @@ GitHub shows you.
 
 1. Sign up at [neon.tech](https://neon.tech) and create a project. Any name.
 2. Pick the region closest to you — **US West (Oregon)** for Wyoming.
-3. Copy the connection string it gives you. It looks like:
-   `postgresql://user:password@ep-something.us-west-2.aws.neon.tech/neondb?sslmode=require`
+3. From the project dashboard, copy **both** connection strings.
 
-Keep that tab open, you need the string in a moment.
+Neon's dashboard offers a pooled and a direct string, and you need each of them:
+
+| | Host looks like | Used by |
+|---|---|---|
+| **Pooled** | `ep-something-pooler.us-west-2...` | the running app |
+| **Direct** | `ep-something.us-west-2...` | `prisma migrate` during the build |
+
+They're the same string apart from `-pooler`. If the dashboard only shows one,
+toggle "Connection pooling" to see the other, or just add/remove `-pooler`
+yourself.
+
+Ignore any prompt to run `npx neon init`. That's a scaffolding tool for starting
+a new project — it would rewrite your `.env` and install a driver this app
+doesn't use. You only need the strings.
+
+Keep that tab open, you need them in a moment.
 
 ## 3. Deploy the site
 
@@ -57,7 +71,8 @@ Keep that tab open, you need the string in a moment.
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | the Neon string from step 2 |
+   | `DATABASE_URL` | the **pooled** Neon string (has `-pooler`) |
+   | `DIRECT_URL` | the **direct** Neon string (no `-pooler`) |
    | `SESSION_SECRET` | run the command below and paste the result |
 
    ```bash
