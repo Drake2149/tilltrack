@@ -33,7 +33,7 @@ const CONFIG = {
   //   ADMIN_PASSWORD="..." npm run db:bootstrap
   admin: {
     name: 'Drake Martinson',
-    email: 'drakemartinson49@gmail.com',
+    email: '194429972+Drake2149@users.noreply.github.com',
     password: process.env.ADMIN_PASSWORD ?? '',
   },
 
