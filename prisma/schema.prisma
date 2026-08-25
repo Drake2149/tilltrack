@@ -1,0 +1,334 @@
+// TillTrack — cash accountability & inventory for volunteer-run concession stands.
+//
+// Money is stored as integer cents everywhere. This is a cash-reconciliation app;
+// floating point money would produce phantom discrepancies.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  VOLUNTEER
+  VIEWER
+}
+
+enum ShiftStatus {
+  SCHEDULED
+  OPEN
+  CLOSED
+}
+
+enum TillCountType {
+  OPENING
+  CLOSING
+}
+
+enum InventoryTxnType {
+  RESTOCK
+  WASTE
+  ADJUSTMENT
+}
+
+model Organization {
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+
+  // abs(discrepancy) above this flags the shift for review. Spec §5, configurable per org.
+  discrepancyThresholdCents Int @default(1000)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                 User[]
+  stands                Stand[]
+  events                Event[]
+  shifts                Shift[]
+  menuItems             MenuItem[]
+  inventoryItems        InventoryItem[]
+  shiftAssignments      ShiftAssignment[]
+  tillCounts            TillCount[]
+  orders                Order[]
+  saleEntries           SaleEntry[]
+  inventoryTransactions InventoryTransaction[]
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  email        String @unique
+  passwordHash String
+  name         String
+  role         Role   @default(VOLUNTEER)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments           ShiftAssignment[]
+  tillCounts            TillCount[]
+  orders                Order[]
+  saleEntries           SaleEntry[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([organizationId])
+}
+
+model Stand {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name   String
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  menuItems      MenuItem[]
+  inventoryItems InventoryItem[]
+  shifts         Shift[]
+
+  @@index([organizationId])
+}
+
+model MenuItem {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  standId        String
+  stand          Stand        @relation(fields: [standId], references: [id], onDelete: Cascade)
+
+  name       String
+  priceCents Int
+  // Unit cost drives profit-by-item reporting (spec §4.7). Optional — many clubs
+  // don't track it at first.
+  costCents  Int  @default(0)
+
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  saleEntries SaleEntry[]
+
+  @@index([organizationId])
+  @@index([standId])
+}
+
+model InventoryItem {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  standId        String
+  stand          Stand        @relation(fields: [standId], references: [id], onDelete: Cascade)
+
+  name String
+  unit String @default("each")
+
+  // Derived from the transaction ledger, cached here for fast low-stock queries.
+  currentStock     Int @default(0)
+  reorderThreshold Int @default(0)
+  unitCostCents    Int @default(0)
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions InventoryTransaction[]
+
+  @@index([organizationId])
+  @@index([standId])
+}
+
+model Event {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  startsAt DateTime
+  notes    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shifts Shift[]
+
+  @@index([organizationId])
+  @@index([startsAt])
+}
+
+model Shift {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  standId        String
+  stand          Stand        @relation(fields: [standId], references: [id], onDelete: Cascade)
+  eventId        String
+  event          Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  name     String?
+  startsAt DateTime
+  endsAt   DateTime
+
+  status   ShiftStatus @default(SCHEDULED)
+  openedAt DateTime?
+  closedAt DateTime?
+
+  // Snapshotted when the shift closes so historical reports don't shift meaning
+  // if an admin later changes the org threshold.
+  thresholdCentsAtClose Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments           ShiftAssignment[]
+  tillCounts            TillCount[]
+  orders                Order[]
+  saleEntries           SaleEntry[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@index([organizationId])
+  @@index([eventId])
+  @@index([standId])
+}
+
+/// One customer's transaction at the window. Volunteers ring up a whole order,
+/// so the app can show the total and the change due rather than making someone
+/// do mental arithmetic with a line behind them.
+model Order {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftId        String
+  shift          Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  totalCents Int
+  // Null when the customer paid exactly and no change was calculated.
+  tenderedCents Int?
+  changeCents   Int?
+
+  recordedById String
+  recordedBy   User     @relation(fields: [recordedById], references: [id])
+  recordedAt   DateTime @default(now())
+
+  clientId String @unique
+
+  createdAt DateTime @default(now())
+
+  lines SaleEntry[]
+
+  @@index([organizationId])
+  @@index([shiftId])
+}
+
+model ShiftAssignment {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftId        String
+  shift          Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([shiftId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model TillCount {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftId        String
+  shift          Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  type        TillCountType
+  amountCents Int
+
+  // JSON-encoded denomination breakdown, e.g. {"2000":3,"100":12}. Optional.
+  breakdown String?
+
+  countedById String
+  countedBy   User     @relation(fields: [countedById], references: [id])
+  countedAt   DateTime @default(now())
+
+  // Client-generated UUID. Makes offline replay idempotent — a volunteer's phone
+  // can retry a queued count without creating duplicates.
+  clientId String @unique
+
+  createdAt DateTime @default(now())
+
+  @@unique([shiftId, type])
+  @@index([organizationId])
+}
+
+model SaleEntry {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shiftId        String
+  shift          Shift        @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  menuItemId     String
+  menuItem       MenuItem     @relation(fields: [menuItemId], references: [id])
+  orderId        String?
+  order          Order?       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Negative quantity is an undo of a mis-tap, kept as a row so the tape is auditable.
+  quantity Int
+
+  // Price snapshot — reports must not change if an admin edits the menu later.
+  unitPriceCents Int
+  unitCostCents  Int @default(0)
+
+  recordedById String
+  recordedBy   User     @relation(fields: [recordedById], references: [id])
+  recordedAt   DateTime @default(now())
+
+  clientId String @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([shiftId])
+  @@index([menuItemId])
+  @@index([orderId])
+}
+
+model InventoryTransaction {
+  id              String        @id @default(cuid())
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  shiftId         String?
+  shift           Shift?        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  type InventoryTxnType
+  // Signed: restock is positive, waste is negative, adjustment is either.
+  quantityDelta Int
+  note          String?
+
+  recordedById String
+  recordedBy   User     @relation(fields: [recordedById], references: [id])
+  recordedAt   DateTime @default(now())
+
+  clientId String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([inventoryItemId])
+  @@index([shiftId])
+}
