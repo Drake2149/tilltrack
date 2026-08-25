@@ -13,6 +13,21 @@ reliable wifi.
 npm install
 ```
 
+Then one command runs everything — database, migrations, build, and web server,
+with the server restarted if it falls over and (on macOS) sleep held off while
+it's up:
+
+```bash
+npm run gameday
+```
+
+It prints both the local address and the one phones on the same wifi can use.
+Ctrl+C stops it all cleanly.
+
+### Or run the pieces separately
+
+Useful while developing, since `gameday` runs a production build.
+
 Start the database. This downloads and runs a real Postgres under `.pgdata`, so
 no Docker or system Postgres is needed:
 
